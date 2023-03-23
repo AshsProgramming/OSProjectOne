@@ -1,6 +1,7 @@
 package nachos.threads;
 
 import nachos.machine.*;
+import nachos.threads.MinHeap;
 
 /**
  * Uses the hardware timer to provide preemption, and to allow threads to sleep
@@ -14,7 +15,9 @@ public class Alarm {
      * <p><b>Note</b>: Nachos will not function correctly with more than one
      * alarm.
      */
+	public MinHeap myHeap = new MinHeap();
     public Alarm() {
+    	
 	Machine.timer().setInterruptHandler(new Runnable() {
 		public void run() { timerInterrupt(); }
 	    });
@@ -28,7 +31,20 @@ public class Alarm {
      */
     //TODO
     public void timerInterrupt() {
-	KThread.currentThread().yield();
+    	if(myHeap.size()>0) {
+    		while(myHeap.firstKey()<=Machine.timer().getTime()) {
+    			KThread wakeThread = new KThread();
+    			boolean intStatus = Machine.interrupt().disable();
+    			wakeThread = (KThread)myHeap.removeFirst();
+    			wakeThread.ready();
+    			if(myHeap.size()<=0) {
+    				break;
+    			}
+    			Machine.interrupt().restore(intStatus);
+    		}
+    	}
+        
+       KThread.currentThread().yield();
     }
 
     /**
@@ -47,9 +63,13 @@ public class Alarm {
      */
     //TODO
     public void waitUntil(long x) {
-	// for now, cheat just to get something working (busy waiting is bad)
-	long wakeTime = Machine.timer().getTime() + x;
-	while (wakeTime > Machine.timer().getTime())
-	    KThread.yield();
+    	long wakeTime = Machine.timer().getTime() + x;
+    	boolean intStat = Machine.interrupt().disable(); //interrupt status
+
+    	
+    	myHeap.add(wakeTime,KThread.currentThread()); //add the thread and time to myHeap
+    	KThread.currentThread().sleep();
+    	
+    	Machine.interrupt().restore(intStat);//interrupt status will wake up the thread after the timer is up
     }
 }

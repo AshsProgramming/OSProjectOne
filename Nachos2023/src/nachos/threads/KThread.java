@@ -43,6 +43,7 @@ public class KThread {
      * create an idle thread as well.
      */
     public KThread() {
+    	 isFinished = new Condition2(joinLock);
 	if (currentThread != null) {
 	    tcb = new TCB();
 	}	    
@@ -193,8 +194,14 @@ public class KThread {
 
 
 	currentThread.status = statusFinished;
+
+	KThread thread = currentThread.joinQueue.nextThread(); //ended up going for an if statement
+	if(thread != null) {
+		thread.ready();
+	}
 	
-	sleep();
+	sleep();	//then sleep
+	
     }
 
     /**
@@ -273,9 +280,24 @@ public class KThread {
      * thread.
      */
     public void join() {
-	Lib.debug(dbgThread, "Joining to thread: " + toString());
+    	Lib.debug(dbgThread, "Joining to thread: " + toString());
 
-	Lib.assertTrue(this != currentThread);
+    	Lib.assertTrue(this != currentThread); //this isn't current thread 
+    	if(this != currentThread) {
+    		
+    	}
+    	
+    	joinLock.acquire();		//locked
+    	if(status == statusFinished){		//if finished, release lock
+    		joinLock.release();
+    	}
+    	else{									//otherwise
+    		Machine.interrupt().disable();		//no interrupting while we wait for access
+    		this.joinQueue.waitForAccess(currentThread);
+    		Machine.interrupt().enable();		//now we can interrupt
+    		isFinished.sleep();					//sleep to run the others
+    		joinLock.release();					//release lock since join is done
+    	}
 
     }
 
@@ -431,6 +453,7 @@ public class KThread {
     private String name = "(unnamed thread)";
     private Runnable target;
     private TCB tcb;
+    private ThreadQueue joinQueue = ThreadedKernel.scheduler.newThreadQueue(true);
 
     /**
      * Unique identifer for this thread. Used to deterministically compare
@@ -444,4 +467,6 @@ public class KThread {
     private static KThread currentThread = null;
     private static KThread toBeDestroyed = null;
     private static KThread idleThread = null;
+    private static Lock joinLock = new Lock();
+    private Condition2 isFinished;
 }
