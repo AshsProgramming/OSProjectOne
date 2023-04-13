@@ -144,7 +144,9 @@ public class KThread {
 		  "Forking thread: " + toString() + " Runnable: " + target);
 
 	boolean intStatus = Machine.interrupt().disable();
-
+	
+	
+	
 	tcb.start(new Runnable() {
 		public void run() {
 		    runThread();
@@ -267,10 +269,10 @@ public class KThread {
 	Lib.assertTrue(status != statusReady);
 	
 	status = statusReady;
-	if (this != idleThread)
-	    readyQueue.waitForAccess(this);
+	//if (this != idleThread)
+	 readyQueue.waitForAccess(this);
 	
-	Machine.autoGrader().readyThread(this);
+	//Machine.autoGrader().readyThread(this);
     }
     //TODO
     /**
@@ -293,6 +295,7 @@ public class KThread {
     	}
     	else{									//otherwise
     		Machine.interrupt().disable();		//no interrupting while we wait for access
+    		System.out.println("joining queue, waiting for access...");
     		this.joinQueue.waitForAccess(currentThread);
     		Machine.interrupt().enable();		//now we can interrupt
     		isFinished.sleep();					//sleep to run the others
@@ -314,12 +317,14 @@ public class KThread {
 	Lib.assertTrue(idleThread == null);
 	
 	idleThread = new KThread(new Runnable() {
-	    public void run() { while (true) KThread.yield(); }
+	    public void run() { while (true)
+	    	KThread.yield(); }
 	});
 	idleThread.setName("idle");
+	
 
 	Machine.autoGrader().setIdleThread(idleThread);
-	
+	Lib.assertTrue(idleThread != null);
 	idleThread.fork();
     }
     
@@ -469,4 +474,5 @@ public class KThread {
     private static KThread idleThread = null;
     private static Lock joinLock = new Lock();
     private Condition2 isFinished;
+    
 }

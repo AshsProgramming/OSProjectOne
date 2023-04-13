@@ -1,10 +1,11 @@
 package nachos.threads;
 
 import nachos.machine.*;
+import nachos.threads.PriorityScheduler.PriorityQueue;
+import nachos.threads.PriorityScheduler.ThreadState;
 
-import java.util.TreeSet;
-import java.util.HashSet;
-import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
 
 /**
  * A scheduler that chooses threads based on their priorities.
@@ -32,6 +33,8 @@ public class PriorityScheduler extends Scheduler {
      */
     public PriorityScheduler() {
     }
+    
+	
     
     /**
      * Allocate a new priority thread queue.
@@ -87,8 +90,7 @@ public class PriorityScheduler extends Scheduler {
 	KThread thread = KThread.currentThread();
 
 	int priority = getPriority(thread);
-	if (priority == priorityMinimum)
-	    return false;
+	if (priority == priorityMinimum) return false;
 
 	setPriority(thread, priority-1);
 
@@ -121,31 +123,74 @@ public class PriorityScheduler extends Scheduler {
 
 	return (ThreadState) thread.schedulingState;
     }
+    
+    
 
     /**
      * A <tt>ThreadQueue</tt> that sorts threads by priority.
      */
     protected class PriorityQueue extends ThreadQueue {
+    	
+    protected List<ThreadState> waitList;
+    protected boolean sharing = false;
+    protected ThreadState donatedResources = null;
+    protected int e = priorityMinimum;
+
+    	
 	PriorityQueue(boolean transferPriority) {
 	    this.transferPriority = transferPriority;
+	    this.waitList = new LinkedList<ThreadState>();
 	}
 
 	public void waitForAccess(KThread thread) {
-	    Lib.assertTrue(Machine.interrupt().disabled());
-	    getThreadState(thread).waitForAccess(this);
+		Lib.assertTrue(Machine.interrupt().disabled());
+	    final ThreadState ts = getThreadState(thread);
+        this.waitList.add(ts);
+        ts.waitForAccess(this);
 	}
 
 	public void acquire(KThread thread) {
 	    Lib.assertTrue(Machine.interrupt().disabled());
-	    getThreadState(thread).acquire(this);
+	    final ThreadState ts = getThreadState(thread);
+        if (this.donatedResources != null) {
+            this.donatedResources.remove(this);
+        }
+        this.donatedResources = ts;
+        ts.acquire(this);
 	}
-
+	
+	
+	
+	
+	//IMPLEMENTED
 	public KThread nextThread() {
 	    Lib.assertTrue(Machine.interrupt().disabled());
-	    // implement me
-	    return null;
+	    
+
+	    ThreadState nextThread = this.pickNextThread();
+	    
+	    if(nextThread == null) {
+
+	    	return null;
+	    }
+	    
+	    this.acquire(nextThread.getThread());
+	    
+	    return nextThread.getThread();
 	}
 
+	private void sharePriority() {
+		if(!this.sharing) {
+			return;
+		}
+		this.sharing = true;
+		
+		if(this.donatedResources!=null) {
+			donatedResources.findPQWithResourcesToShare();
+		}
+	}
+	
+	
 	/**
 	 * Return the next thread that <tt>nextThread()</tt> would return,
 	 * without modifying the state of this queue.
@@ -153,9 +198,21 @@ public class PriorityScheduler extends Scheduler {
 	 * @return	the next thread that <tt>nextThread()</tt> would
 	 *		return.
 	 */
+	//IMPLEMENTED
 	protected ThreadState pickNextThread() {
-	    // implement me
-	    return null;
+		ThreadState next = null;
+		//Implementation must NOT modify the queue
+		int priority = 0;
+		int currentPriority = 0;
+		for(ThreadState currentThread: this.waitList) {
+			 currentPriority = currentThread.getEffectivePriority();
+			if(next == null || currentPriority>priority) {
+				next = currentThread;
+				priority = currentPriority;
+			}
+		}
+		this.waitList.remove(next);
+	    return next;
 	}
 	
 	public void print() {
@@ -168,12 +225,7 @@ public class PriorityScheduler extends Scheduler {
 	 * threads to the owning thread.
 	 */
 	public boolean transferPriority;
-
-	@Override
-	public boolean empty() {
-		// TODO Auto-generated method stub
-		return false;
-	}
+		
     }
 
     /**
@@ -184,6 +236,13 @@ public class PriorityScheduler extends Scheduler {
      * @see	nachos.threads.KThread#schedulingState
      */
     protected class ThreadState {
+    	
+	protected LinkedList<PriorityQueue> readyThreads;
+	protected LinkedList<PriorityQueue> waitingThreads;
+	protected boolean sharing = false;
+	private int ePriority = priorityMinimum;
+	
+	
 	/**
 	 * Allocate a new <tt>ThreadState</tt> object and associate it with the
 	 * specified thread.
@@ -192,8 +251,15 @@ public class PriorityScheduler extends Scheduler {
 	 */
 	public ThreadState(KThread thread) {
 	    this.thread = thread;
-	    
-	    setPriority(priorityDefault);
+	    this.readyThreads = new LinkedList<PriorityQueue>();
+	    this.waitingThreads = new LinkedList<PriorityQueue>();
+	}
+
+	public void remove(PriorityQueue priorityQueue) {
+		
+			this.readyThreads.remove(priorityQueue);
+			this.findPQWithResourcesToShare();
+		
 	}
 
 	/**
@@ -205,14 +271,27 @@ public class PriorityScheduler extends Scheduler {
 	    return priority;
 	}
 
+	//IMPLEMENTED
 	/**
 	 * Return the effective priority of the associated thread.
 	 *
 	 * @return	the effective priority of the associated thread.
 	 */
 	public int getEffectivePriority() {
-	    // implement me
-	    return priority;
+	    //Used Dr. Li's hint
+		this.ePriority = this.getPriority();
+	
+		
+		for(PriorityQueue pq : this.readyThreads) {
+			if(this.sharing) {
+				for(final ThreadState ts: pq.waitList) {
+					 this.ePriority = Math.max(ts.getEffectivePriority(), this.getPriority());
+				}
+				this.sharing = false;
+			}
+
+		}
+	    return this.ePriority ;
 	}
 
 	/**
@@ -227,6 +306,9 @@ public class PriorityScheduler extends Scheduler {
 	    this.priority = priority;
 	    
 	    // implement me
+	    for (PriorityQueue q : waitingThreads) {
+            q.sharePriority();
+        }
 	}
 
 	/**
@@ -243,6 +325,11 @@ public class PriorityScheduler extends Scheduler {
 	 */
 	public void waitForAccess(PriorityQueue waitQueue) {
 	    // implement me
+		System.out.println("wait for access threads");
+		this.waitingThreads.add(waitQueue);
+		this.readyThreads.remove(waitQueue); 	
+		waitQueue.sharePriority();
+		System.out.println(this.ePriority);
 	}
 
 	/**
@@ -256,8 +343,27 @@ public class PriorityScheduler extends Scheduler {
 	 * @see	nachos.threads.ThreadQueue#nextThread
 	 */
 	public void acquire(PriorityQueue waitQueue) {
-	    // implement me
+		//This waitQueue was in waitingThreads
+		//It's time for it to be ready.
+		this.readyThreads.add(waitQueue);
+		this.waitingThreads.remove(waitQueue);
+			 	
+		this.findPQWithResourcesToShare();
 	}	
+	
+	public KThread getThread() {
+		return this.thread;
+	}
+	//Share priority with the waiting pq
+	public void findPQWithResourcesToShare() {
+		if(this.sharing) {
+			return;
+		}
+		this.sharing = true;
+		for(PriorityQueue pq: this.waitingThreads) {
+			pq.sharePriority();
+		}
+	}
 
 	/** The thread with which this object is associated. */	   
 	protected KThread thread;

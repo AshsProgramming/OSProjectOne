@@ -81,10 +81,6 @@ public class RoundRobinScheduler extends Scheduler {
 
 	private LinkedList<KThread> waitQueue = new LinkedList<KThread>();
 
-	@Override
-	public boolean empty() {
-		// TODO Auto-generated method stub
-		return false;
-	}
+
     }
 }
